@@ -15,6 +15,10 @@
 
 Communicator::Communicator() : Node("external_position_comm")
 {
+    // Parameter def
+    this->declare_parameter<uint16_t>("port", 51001);
+    this->get_parameter<uint16_t>("port", port_);
+
     // 33Hz
     this->timer_ = this->create_wall_timer(std::chrono::milliseconds(30), std::bind(&Communicator::timer_callback, this));
 
@@ -24,24 +28,22 @@ Communicator::Communicator() : Node("external_position_comm")
 
 void Communicator::timer_callback()
 {
-    // Signal Handler
-    signal(SIGINT, [](int sig_num){exit(sig_num);});
-
-    ssize_t rx_length = recvfrom(sock, (char *) buffer, sizeof(buffer), MSG_WAITALL, (struct sockaddr *) &server, &socket_length);
-    buffer[rx_length] = '\0';
+    ssize_t rx_length = recvfrom(sock_, (char *) buffer_, sizeof(buffer_), MSG_WAITALL, (struct sockaddr *) &server_, &socket_length_);
+    RCLCPP_INFO(this->get_logger(), "rx_length: %ld", rx_length);
+    buffer_[rx_length] = '\0';
 
     // Unpack from locqt Server
-    memcpy(&frame_number, buffer+0, 4);
-    memcpy(&frame_ID, buffer+4, 1);
+    memcpy(&frame_number_, buffer_+0, 4);
+    memcpy(&frame_ID_, buffer_+4, 1);
 
-    memcpy(&position.translation[0], buffer+5, 8);
-    memcpy(&position.translation[1], buffer+13, 8);
-    memcpy(&position.translation[2], buffer+21, 8);
+    memcpy(&position_.translation[0], buffer_+5, 8);
+    memcpy(&position_.translation[1], buffer_+13, 8);
+    memcpy(&position_.translation[2], buffer_+21, 8);
 
-    memcpy(&position.rotation_q[0], buffer+29, 8);
-    memcpy(&position.rotation_q[1], buffer+37, 8);
-    memcpy(&position.rotation_q[2], buffer+45, 8);
-    memcpy(&position.rotation_q[3], buffer+53, 8);
+    memcpy(&position_.rotation_q[0], buffer_+29, 8);
+    memcpy(&position_.rotation_q[1], buffer_+37, 8);
+    memcpy(&position_.rotation_q[2], buffer_+45, 8);
+    memcpy(&position_.rotation_q[3], buffer_+53, 8);
 
     // ROS2 publishing
     px4_msgs::msg::VehicleOdometry msg{};
@@ -49,57 +51,65 @@ void Communicator::timer_callback()
 
     msg.pose_frame = px4_msgs::msg::VehicleOdometry::POSE_FRAME_FRD;
     msg.position = {
-        static_cast<float>(position.translation[0]),
-        static_cast<float>(-position.translation[1]),
-        static_cast<float>(-position.translation[2]) 
+        static_cast<float>(position_.translation[0]),
+        -static_cast<float>(position_.translation[1]),
+        -static_cast<float>(position_.translation[2]) 
     };
     msg.q = {
-        static_cast<float>(position.rotation_q[3]),
-        static_cast<float>(position.rotation_q[0]),
-        static_cast<float>(-position.rotation_q[1]),
-        static_cast<float>(-position.rotation_q[2])
+        static_cast<float>(position_.rotation_q[3]),
+        static_cast<float>(position_.rotation_q[0]),
+        -static_cast<float>(position_.rotation_q[1]),
+        -static_cast<float>(position_.rotation_q[2])
     };
     msg.position_variance = {0.001, 0.001, 0.001};
 
     odometry_pub_->publish(msg);
+
+    // DEBUG
+    RCLCPP_INFO(this->get_logger(), "Position received: [%.2f, %.2f, %.2f]", msg.position[0], msg.position[1], msg.position[2]);
 }
 
 void Communicator::connect()
 {
+    // Signal Handler
+    signal(SIGINT, [](int sig_num){exit(sig_num);});
+    
     // Socket init
-    if( (sock = socket(AF_INET, SOCK_DGRAM, 0)) < 0) 
+    if( (sock_ = socket(AF_INET, SOCK_DGRAM, 0)) < 0) 
     {
-        perror("Socket creation failed"); 
-        exit(EXIT_FAILURE); 
+        RCLCPP_ERROR(this->get_logger(), "Socket creation failed"); 
+        exit(EXIT_FAILURE);
     }
     else
     {
-        std::cout << "Socket created" << std::endl;
+        RCLCPP_INFO(this->get_logger(),"Socket created");
     }
 
     // Zero-out server address structure
-    std::memset(&server, 0, sizeof(server));
+    std::memset(&server_, 0, sizeof(server_));
 
-    server.sin_addr.s_addr = INADDR_ANY; //inet_addr("192.168.50.56");;
-    server.sin_family = AF_INET;
-    server.sin_port = htons(PORT);
-    socket_length = sizeof(server);
+    server_.sin_addr.s_addr = INADDR_ANY; //inet_addr("192.168.50.56");;
+    server_.sin_family = AF_INET;
+    server_.sin_port = htons(port_);
+    socket_length_ = sizeof(server_);
 
     // Bind the socket to any valid IP address and a specific port
-    if( bind(sock, (const struct sockaddr *)&server, sizeof(server)) < 0 ) 
+    RCLCPP_INFO(this->get_logger(), "Waiting for bind...");
+    if( bind(sock_, (const struct sockaddr *)&server_, sizeof(server_)) < 0 ) 
     { 
-        perror("Bind failed"); 
-        exit(EXIT_FAILURE); 
+        RCLCPP_ERROR(this->get_logger(),"Bind failed"); 
+        sleep(1);
+        // exit(EXIT_FAILURE); 
     }
-    else
+    else 
     {
-        std::cout << "Bind completed" << std::endl;
+        RCLCPP_INFO(this->get_logger(), "Bind completed to ADDR: %d, PORT: %u", ntohl(server_.sin_addr.s_addr), ntohs(server_.sin_port));
     }
 }
 
 void Communicator::disconnect()
 {
-    close(sock);
+    close(sock_);
 }
 
 int main(int argc, char *  argv[])

@@ -15,9 +15,7 @@
 #include <arpa/inet.h> 
 #include <netinet/in.h> 
 #include <cstdlib>
-#include <iostream>
 
-#define PORT 51002
 #define MAXLINE 1024
 
 struct Position {
@@ -39,15 +37,16 @@ class Communicator : public rclcpp::Node
         rclcpp::Publisher<px4_msgs::msg::VehicleOdometry>::SharedPtr odometry_pub_;
         
         // locqt Server Rx
-        struct Position position;
-        uint32_t frame_number;
-        uint8_t frame_ID;
+        struct Position position_;
+        uint32_t frame_number_;
+        uint8_t frame_ID_;
 
         // UDP protocol 
-        int sock;
-        struct sockaddr_in server;
-        char buffer[MAXLINE];   
-        socklen_t socket_length;     
+        int sock_;
+        uint16_t port_;
+        struct sockaddr_in server_;
+        char buffer_[MAXLINE];   
+        socklen_t socket_length_;     
 };
 
 #endif
